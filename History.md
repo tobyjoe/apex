@@ -1,4 +1,65 @@
 
+v0.8.0 / 2016-04-08
+===================
+
+  * add nodejs 4.3.2 support. Closes #356
+  * add `defaultEnvironment` in project.json. Closes #338
+  * add test for merging envs. Closes #348
+  * rename --start to --since [breaking change]
+  * refactor java plugin to expect a JAR file, rather than building one based on a pom file. [breaking change]
+  * fix: api-gateway example Internal server error
+
+v0.7.3 / 2016-03-23
+===================
+
+  * add passing aws_region var to Terraform
+  * add API Gateway integration example. Closes #339
+  * add env switch. Closes #304
+  * add indent in init command. Closes #303
+  * fix prompt.Confirm on Windows
+
+v0.7.2 / 2016-03-15
+===================
+
+  * fix checking config changes. Closes #334
+
+v0.7.1 / 2016-03-14
+===================
+
+  * add error message to install.sh if GitHub API call fails
+  * add example of following logs with no historical output
+  * add deploy, rollback, and invoke --alias support. Closes #7
+  * add remote Terraform state init. Closes #299
+  * add openbsd. Closes #307
+  * add DEBUG_SHIM to out stdout output
+  * refactor logging in function. Closes #84
+  * fix detecting config changes. Closes #311
+  * fix AWS config precedence
+
+v0.7.0 / 2016-03-03
+===================
+
+  * add Project.LoadFunction(name)
+  * add project.LoadFunctionByPath(name, path)
+  * add `init` command
+  * add `infra` command
+  * add zip compression. Closes #263
+  * add several new examples (browserify, webpack, java)
+  * add zero-ing of mtime for all files. Closes #262
+  * add java support . Closes #4
+  * add installation script. Closes #199
+  * add VPC support. Closes #242
+  * add cleaning up old versions. Closes #148
+  * add a flag for passing an AWS credentials file into Apex
+  * refactor rollback to use flag instead of arg. Closes #289
+  * refactor Java plugin; no pom.xml generation
+  * refactor env flag; moved to deploy command
+  * fix EACCESS error caused by missing exec bit. Closes #281
+  * fix pattern matching for .gitignore parity. Closes #228
+  * fix loading region from default profile
+  * fix path separator handling in windows. Closes #222.
+  * fix: build all Golang source files for function
+
 v0.6.1 / 2016-02-08
 ===================
 

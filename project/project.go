@@ -19,7 +19,9 @@ import (
 
 	"github.com/apex/apex/function"
 	"github.com/apex/apex/hooks"
+	"github.com/apex/apex/infra"
 	"github.com/apex/apex/utils"
+	"github.com/apex/apex/vpc"
 )
 
 const (
@@ -32,47 +34,56 @@ const (
 
 // Config for project.
 type Config struct {
-	Name         string            `json:"name" validate:"nonzero"`
-	Description  string            `json:"description"`
-	Runtime      string            `json:"runtime"`
-	Memory       int64             `json:"memory"`
-	Timeout      int64             `json:"timeout"`
-	Role         string            `json:"role"`
-	Handler      string            `json:"handler"`
-	Shim         bool              `json:"shim"`
-	NameTemplate string            `json:"nameTemplate"`
-	Environment  map[string]string `json:"environment"`
-	Hooks        hooks.Hooks       `json:"hooks"`
+	Name               string            `json:"name" validate:"nonzero"`
+	Description        string            `json:"description"`
+	Runtime            string            `json:"runtime"`
+	Memory             int64             `json:"memory"`
+	Timeout            int64             `json:"timeout"`
+	Role               string            `json:"role"`
+	Handler            string            `json:"handler"`
+	Shim               bool              `json:"shim"`
+	NameTemplate       string            `json:"nameTemplate"`
+	RetainedVersions   int               `json:"retainedVersions"`
+	DefaultEnvironment string            `json:"defaultEnvironment"`
+	Environment        map[string]string `json:"environment"`
+	Hooks              hooks.Hooks       `json:"hooks"`
+	VPC                vpc.VPC           `json:"vpc"`
 }
 
 // Project represents zero or more Lambda functions.
 type Project struct {
 	Config
-	Path            string
-	Concurrency     int
-	Log             log.Interface
-	Service         lambdaiface.LambdaAPI
-	Functions       []*function.Function
-	IgnoredPatterns []string
-	nameTemplate    *template.Template
+	Path         string
+	Alias        string
+	Concurrency  int
+	Environment  string
+	Log          log.Interface
+	Service      lambdaiface.LambdaAPI
+	Functions    []*function.Function
+	IgnoreFile   []byte
+	nameTemplate *template.Template
 }
 
 // defaults applies configuration defaults.
 func (p *Project) defaults() {
 	p.Memory = DefaultMemory
 	p.Timeout = DefaultTimeout
-	p.IgnoredPatterns = []string{"function.json"}
+	p.IgnoreFile = []byte(".apexignore\nfunction.json\n")
 
 	if p.Concurrency == 0 {
 		p.Concurrency = 5
 	}
 
-	if p.Environment == nil {
-		p.Environment = make(map[string]string)
+	if p.Config.Environment == nil {
+		p.Config.Environment = make(map[string]string)
 	}
 
 	if p.NameTemplate == "" {
 		p.NameTemplate = "{{.Project.Name}}_{{.Function.Name}}"
+	}
+
+	if p.RetainedVersions == 0 {
+		p.RetainedVersions = 10
 	}
 }
 
@@ -89,6 +100,13 @@ func (p *Project) Open() error {
 		return err
 	}
 
+	if p.Environment == "" {
+		p.Environment = p.Config.DefaultEnvironment
+	}
+	if p.Role == "" {
+		p.Role = p.readInfraRole()
+	}
+
 	if err := validator.Validate(&p.Config); err != nil {
 		return err
 	}
@@ -99,11 +117,11 @@ func (p *Project) Open() error {
 	}
 	p.nameTemplate = t
 
-	patterns, err := utils.ReadIgnoreFile(p.Path)
+	ignoreFile, err := utils.ReadIgnoreFile(p.Path)
 	if err != nil {
 		return err
 	}
-	p.IgnoredPatterns = append(p.IgnoredPatterns, patterns...)
+	p.IgnoreFile = append(p.IgnoreFile, ignoreFile...)
 
 	return nil
 }
@@ -129,7 +147,7 @@ func (p *Project) LoadFunctions(names ...string) error {
 			continue
 		}
 
-		fn, err := p.loadFunction(name)
+		fn, err := p.LoadFunction(name)
 		if err != nil {
 			return err
 		}
@@ -224,6 +242,32 @@ func (p *Project) Delete() error {
 	return nil
 }
 
+// Rollback project functions to previous version.
+func (p *Project) Rollback() error {
+	p.Log.Debugf("rolling back %d functions", len(p.Functions))
+
+	for _, fn := range p.Functions {
+		if err := fn.Rollback(); err != nil {
+			return fmt.Errorf("function %s: %s", fn.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// RollbackVersion project functions to the specified version.
+func (p *Project) RollbackVersion(version string) error {
+	p.Log.Debugf("rolling back %d functions to version %s", len(p.Functions), version)
+
+	for _, fn := range p.Functions {
+		if err := fn.RollbackVersion(version); err != nil {
+			return fmt.Errorf("function %s: %s", fn.Name, err)
+		}
+	}
+
+	return nil
+}
+
 // FunctionDirNames returns a list of function directory names.
 func (p *Project) FunctionDirNames() (list []string, err error) {
 	dir := filepath.Join(p.Path, functionsDir)
@@ -249,27 +293,34 @@ func (p *Project) Setenv(name, value string) {
 	}
 }
 
-// loadFunction returns the function in the ./functions/<name> directory.
-func (p *Project) loadFunction(name string) (*function.Function, error) {
-	dir := filepath.Join(p.Path, functionsDir, name)
-	p.Log.Debugf("loading function in %s", dir)
+// LoadFunction returns the function in the ./functions/<name> directory.
+func (p *Project) LoadFunction(name string) (*function.Function, error) {
+	return p.LoadFunctionByPath(name, filepath.Join(p.Path, functionsDir, name))
+}
+
+// LoadFunctionByPath returns the function in the given directory.
+func (p *Project) LoadFunctionByPath(name, path string) (*function.Function, error) {
+	p.Log.Debugf("loading function in %s", path)
 
 	fn := &function.Function{
 		Config: function.Config{
-			Runtime:     p.Runtime,
-			Memory:      p.Memory,
-			Timeout:     p.Timeout,
-			Role:        p.Role,
-			Handler:     p.Handler,
-			Shim:        p.Shim,
-			Hooks:       p.Hooks,
-			Environment: copyStringMap(p.Environment),
+			Runtime:          p.Runtime,
+			Memory:           p.Memory,
+			Timeout:          p.Timeout,
+			Role:             p.Role,
+			Handler:          p.Handler,
+			Shim:             p.Shim,
+			Hooks:            p.Hooks,
+			Environment:      copyStringMap(p.Config.Environment),
+			RetainedVersions: p.RetainedVersions,
+			VPC:              p.VPC,
 		},
-		Name:            name,
-		Path:            dir,
-		Service:         p.Service,
-		Log:             p.Log,
-		IgnoredPatterns: p.IgnoredPatterns,
+		Name:       name,
+		Path:       path,
+		Service:    p.Service,
+		Log:        p.Log,
+		IgnoreFile: p.IgnoreFile,
+		Alias:      p.Alias,
 	}
 
 	if name, err := p.name(fn); err == nil {
@@ -301,6 +352,17 @@ func (p *Project) name(fn *function.Function) (string, error) {
 	}
 
 	return name, nil
+}
+
+// readInfraRole reads lambda function IAM role from infrastructure
+func (p *Project) readInfraRole() string {
+	role, err := infra.Output(p.Environment, "lambda_function_role_id")
+	if err != nil {
+		p.Log.Debugf("couldn't read role from infrastructure: %s", err)
+		return ""
+	}
+
+	return role
 }
 
 const functionsDir = "functions"

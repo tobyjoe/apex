@@ -5,7 +5,6 @@ import (
 
 	"github.com/apex/log"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/spf13/cobra"
@@ -14,6 +13,9 @@ import (
 	"github.com/apex/apex/project"
 	"github.com/apex/apex/utils"
 )
+
+// environment for project.
+var environment string
 
 // chdir working directory.
 var chdir string
@@ -24,17 +26,20 @@ var dryRun bool
 // logLevel specified.
 var logLevel string
 
-// profile for AWS creds.
+// profile for AWS.
 var profile string
 
-// Env supplied.
-var Env []string
+// region for AWS.
+var region string
 
 // Session instance.
 var Session *session.Session
 
 // Project instance.
 var Project *project.Project
+
+// Config for AWS.
+var Config *aws.Config
 
 // Register `cmd`.
 func Register(cmd *cobra.Command) {
@@ -53,11 +58,12 @@ var Command = &cobra.Command{
 func init() {
 	f := Command.PersistentFlags()
 
+	f.StringVarP(&environment, "env", "e", "", "Infastructure environment (default: \"defaultEnvironment\" from project.json)")
 	f.StringVarP(&chdir, "chdir", "C", "", "Working directory")
 	f.BoolVarP(&dryRun, "dry-run", "D", false, "Perform a dry-run")
-	f.StringSliceVarP(&Env, "env", "e", nil, "Environment variable")
 	f.StringVarP(&logLevel, "log-level", "l", "info", "Log severity level")
-	f.StringVarP(&profile, "profile", "p", "", "AWS profile to use")
+	f.StringVarP(&profile, "profile", "p", "", "AWS profile")
+	f.StringVarP(&region, "region", "r", "", "AWS region")
 
 	Command.SetHelpTemplate("\n" + Command.HelpTemplate())
 }
@@ -67,36 +73,63 @@ func PreRunNoop(c *cobra.Command, args []string) {
 	// TODO: ew... better way to disable in cobra?
 }
 
-// PreRun sets up global tasks used for most commands, some use PreRunNoop
+// preRun sets up global tasks used for most commands, some use PreRunNoop
 // to remove this default behaviour.
 func preRun(c *cobra.Command, args []string) error {
+	err := Prepare(c, args)
+	if err != nil {
+		return err
+	}
+
+	return Project.Open()
+}
+
+// Prepare handles the global CLI flags and shared functionality without
+// the assumption that a Project has already been initialized.
+//
+// Precedence is currently:
+//
+//  - flags such as --profile
+//  - env vars such as AWS_PROFILE
+//  - files such as ~/.aws/config
+//
+func Prepare(c *cobra.Command, args []string) error {
 	if l, err := log.ParseLevel(logLevel); err == nil {
 		log.SetLevel(l)
 	}
 
-	// credential defaults
-	config := aws.NewConfig()
+	// config defaults
+	Config = aws.NewConfig()
 
-	// explicit profile
-	if profile != "" {
-		config = config.WithCredentials(credentials.NewSharedCredentials("", profile))
-	}
-
-	// support region from ~/.aws/config for AWS_PROFILE
+	// profile from flag, env, "default"
 	if profile == "" {
 		profile = os.Getenv("AWS_PROFILE")
+		if profile == "" {
+			profile = "default"
+		}
 	}
 
-	// region from ~/.aws/config
-	if region, _ := utils.GetRegion(profile); region != "" {
-		config = config.WithRegion(region)
+	// the default SharedCredentialsProvider checks the env
+	os.Setenv("AWS_PROFILE", profile)
+
+	// region from flag, env, file
+	if region == "" {
+		region = os.Getenv("AWS_REGION")
+		if region == "" {
+			region, _ = utils.GetRegion(profile)
+		}
 	}
 
-	Session = session.New(config)
+	if region != "" {
+		Config = Config.WithRegion(region)
+	}
+
+	Session = session.New(Config)
 
 	Project = &project.Project{
-		Log:  log.Log,
-		Path: ".",
+		Environment: environment,
+		Log:         log.Log,
+		Path:        ".",
 	}
 
 	if dryRun {
@@ -113,5 +146,5 @@ func preRun(c *cobra.Command, args []string) error {
 		}
 	}
 
-	return Project.Open()
+	return nil
 }

@@ -3,6 +3,7 @@ package function
 
 import (
 	"bytes"
+	"compress/flate"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/apex/log"
 	"github.com/aws/aws-sdk-go/aws"
@@ -24,7 +26,19 @@ import (
 
 	"github.com/apex/apex/hooks"
 	"github.com/apex/apex/utils"
+	"github.com/apex/apex/vpc"
 )
+
+// timelessInfo is used to zero mtime which causes function checksums
+// to change regardless of the contents actually being altered, specifically
+// when using tools such as browserify or webpack.
+type timelessInfo struct {
+	os.FileInfo
+}
+
+func (t timelessInfo) ModTime() time.Time {
+	return time.Unix(0, 0)
+}
 
 // defaultPlugins are the default plugins which are required by Apex. Note that
 // the order here is important for some plugins such as inference before the
@@ -34,6 +48,7 @@ var defaultPlugins = []string{
 	"golang",
 	"python",
 	"nodejs",
+	"java",
 	"hooks",
 	"env",
 	"shim",
@@ -67,41 +82,37 @@ func (e *InvokeError) Error() string {
 
 // Config for a Lambda function.
 type Config struct {
-	Description string            `json:"description"`
-	Runtime     string            `json:"runtime" validate:"nonzero"`
-	Memory      int64             `json:"memory" validate:"nonzero"`
-	Timeout     int64             `json:"timeout" validate:"nonzero"`
-	Role        string            `json:"role" validate:"nonzero"`
-	Handler     string            `json:"handler" validate:"nonzero"`
-	Shim        bool              `json:"shim"`
-	Environment map[string]string `json:"environment"`
-	Hooks       hooks.Hooks       `json:"hooks"`
+	Description      string            `json:"description"`
+	Runtime          string            `json:"runtime" validate:"nonzero"`
+	Memory           int64             `json:"memory" validate:"nonzero"`
+	Timeout          int64             `json:"timeout" validate:"nonzero"`
+	Role             string            `json:"role" validate:"nonzero"`
+	Handler          string            `json:"handler" validate:"nonzero"`
+	Shim             bool              `json:"shim"`
+	Environment      map[string]string `json:"environment"`
+	Hooks            hooks.Hooks       `json:"hooks"`
+	RetainedVersions int               `json:"retainedVersions"`
+	VPC              vpc.VPC           `json:"vpc"`
 }
 
 // Function represents a Lambda function, with configuration loaded
 // from the "function.json" file on disk.
 type Function struct {
 	Config
-	Name            string
-	FunctionName    string
-	Path            string
-	Service         lambdaiface.LambdaAPI
-	Log             log.Interface
-	IgnoredPatterns []string
-	Plugins         []string
+	Name         string
+	FunctionName string
+	Path         string
+	Service      lambdaiface.LambdaAPI
+	Log          log.Interface
+	IgnoreFile   []byte
+	Plugins      []string
+	Alias        string
 }
 
 // Open the function.json file and prime the config.
 func (f *Function) Open() error {
+	f.defaults()
 	f.Log = f.Log.WithField("function", f.Name)
-
-	if f.Plugins == nil {
-		f.Plugins = defaultPlugins
-	}
-
-	if f.Environment == nil {
-		f.Environment = make(map[string]string)
-	}
 
 	p, err := os.Open(filepath.Join(f.Path, "function.json"))
 	if err == nil {
@@ -118,13 +129,40 @@ func (f *Function) Open() error {
 		return fmt.Errorf("error opening function %s: %s", f.Name, err.Error())
 	}
 
-	patterns, err := utils.ReadIgnoreFile(f.Path)
+	ignoreFile, err := utils.ReadIgnoreFile(f.Path)
 	if err != nil {
 		return err
 	}
-	f.IgnoredPatterns = append(f.IgnoredPatterns, patterns...)
+	f.IgnoreFile = append(f.IgnoreFile, []byte("\n")...)
+	f.IgnoreFile = append(f.IgnoreFile, ignoreFile...)
 
 	return nil
+}
+
+// defaults applies configuration defaults.
+func (f *Function) defaults() {
+	if f.Alias == "" {
+		f.Alias = CurrentAlias
+	}
+
+	if f.Plugins == nil {
+		f.Plugins = defaultPlugins
+	}
+
+	if f.Environment == nil {
+		f.Environment = make(map[string]string)
+	}
+
+	if f.VPC.Subnets == nil {
+		f.VPC.Subnets = []string{}
+	}
+
+	if f.VPC.SecurityGroups == nil {
+		f.VPC.SecurityGroups = []string{}
+	}
+
+	f.Setenv("APEX_FUNCTION_NAME", f.Name)
+	f.Setenv("LAMBDA_FUNCTION_NAME", f.FunctionName)
 }
 
 // Setenv sets environment variable `name` to `value`.
@@ -136,7 +174,7 @@ func (f *Function) Setenv(name, value string) {
 // If the configuration hasn't been changed it will deploy only code,
 // otherwise it will deploy both configuration and code.
 func (f *Function) Deploy() error {
-	f.Log.Info("deploying")
+	f.Log.Debug("deploying")
 
 	zip, err := f.BuildBytes()
 	if err != nil {
@@ -158,7 +196,7 @@ func (f *Function) Deploy() error {
 	}
 
 	if f.configChanged(config) {
-		f.Log.Info("config changed")
+		f.Log.Debug("config changed")
 		return f.DeployConfigAndCode(zip)
 	}
 
@@ -194,8 +232,14 @@ func (f *Function) DeployConfigAndCode(zip []byte) error {
 		Timeout:      &f.Timeout,
 		Description:  &f.Description,
 		Role:         &f.Role,
+		Runtime:      &f.Runtime,
 		Handler:      &f.Handler,
+		VpcConfig: &lambda.VpcConfig{
+			SecurityGroupIds: aws.StringSlice(f.VPC.SecurityGroups),
+			SubnetIds:        aws.StringSlice(f.VPC.Subnets),
+		},
 	})
+
 	if err != nil {
 		return err
 	}
@@ -209,7 +253,14 @@ func (f *Function) Delete() error {
 	_, err := f.Service.DeleteFunction(&lambda.DeleteFunctionInput{
 		FunctionName: &f.FunctionName,
 	})
-	return err
+
+	if err != nil {
+		return err
+	}
+
+	f.Log.Info("function deleted")
+
+	return nil
 }
 
 // GetConfig returns the function configuration.
@@ -231,12 +282,17 @@ func (f *Function) GetConfigQualifier(s string) (*lambda.GetFunctionOutput, erro
 
 // GetConfigCurrent returns the function configuration for the current version.
 func (f *Function) GetConfigCurrent() (*lambda.GetFunctionOutput, error) {
-	return f.GetConfigQualifier(CurrentAlias)
+	return f.GetConfigQualifier(f.Alias)
 }
 
 // Update the function with the given `zip`.
 func (f *Function) Update(zip []byte) error {
 	f.Log.Info("updating function")
+
+	versionsToCleanup, err := f.versionsToCleanup()
+	if err != nil {
+		return err
+	}
 
 	updated, err := f.Service.UpdateFunctionCode(&lambda.UpdateFunctionCodeInput{
 		FunctionName: &f.FunctionName,
@@ -248,16 +304,8 @@ func (f *Function) Update(zip []byte) error {
 		return err
 	}
 
-	f.Log.Info("updating alias")
-
-	_, err = f.Service.UpdateAlias(&lambda.UpdateAliasInput{
-		FunctionName:    &f.FunctionName,
-		Name:            aws.String(CurrentAlias),
-		FunctionVersion: updated.Version,
-	})
-
-	if err != nil {
-		return nil
+	if err := f.CreateOrUpdateAlias(f.Alias, *updated.Version); err != nil {
+		return err
 	}
 
 	f.Log.WithFields(log.Fields{
@@ -265,7 +313,7 @@ func (f *Function) Update(zip []byte) error {
 		"name":    f.FunctionName,
 	}).Info("function updated")
 
-	return nil
+	return f.removeVersions(versionsToCleanup)
 }
 
 // Create the function with the given `zip`.
@@ -284,22 +332,18 @@ func (f *Function) Create(zip []byte) error {
 		Code: &lambda.FunctionCode{
 			ZipFile: zip,
 		},
+		VpcConfig: &lambda.VpcConfig{
+			SecurityGroupIds: aws.StringSlice(f.VPC.SecurityGroups),
+			SubnetIds:        aws.StringSlice(f.VPC.Subnets),
+		},
 	})
 
 	if err != nil {
 		return err
 	}
 
-	f.Log.Info("creating alias")
-
-	_, err = f.Service.CreateAlias(&lambda.CreateAliasInput{
-		FunctionName:    &f.FunctionName,
-		FunctionVersion: created.Version,
-		Name:            aws.String(CurrentAlias),
-	})
-
-	if err != nil {
-		return nil
+	if err := f.CreateOrUpdateAlias(f.Alias, *created.Version); err != nil {
+		return err
 	}
 
 	f.Log.WithFields(log.Fields{
@@ -307,6 +351,37 @@ func (f *Function) Create(zip []byte) error {
 		"name":    f.FunctionName,
 	}).Info("function created")
 
+	return nil
+}
+
+// CreateOrUpdateAlias attempts creating the alias, or updates if it already exists.
+func (f *Function) CreateOrUpdateAlias(alias, version string) error {
+	_, err := f.Service.CreateAlias(&lambda.CreateAliasInput{
+		FunctionName:    &f.FunctionName,
+		FunctionVersion: &version,
+		Name:            &alias,
+	})
+
+	if err == nil {
+		f.Log.WithField("version", version).Infof("created alias %s", alias)
+		return nil
+	}
+
+	if e, ok := err.(awserr.Error); !ok || e.Code() != "ResourceConflictException" {
+		return err
+	}
+
+	_, err = f.Service.UpdateAlias(&lambda.UpdateAliasInput{
+		FunctionName:    &f.FunctionName,
+		FunctionVersion: &version,
+		Name:            &alias,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	f.Log.WithField("version", version).Infof("updated alias %s", alias)
 	return nil
 }
 
@@ -327,7 +402,7 @@ func (f *Function) Invoke(event, context interface{}) (reply, logs io.Reader, er
 		FunctionName:   &f.FunctionName,
 		InvocationType: aws.String(string(RequestResponse)),
 		LogType:        aws.String("Tail"),
-		Qualifier:      aws.String(CurrentAlias),
+		Qualifier:      &f.Alias,
 		Payload:        eventBytes,
 	})
 
@@ -357,26 +432,18 @@ func (f *Function) Invoke(event, context interface{}) (reply, logs io.Reader, er
 func (f *Function) Rollback() error {
 	f.Log.Info("rolling back")
 
-	alias, err := f.Service.GetAlias(&lambda.GetAliasInput{
-		FunctionName: &f.FunctionName,
-		Name:         aws.String(CurrentAlias),
-	})
-
+	alias, err := f.currentVersionAlias()
 	if err != nil {
 		return err
 	}
 
-	f.Log.Infof("current version: %s", *alias.FunctionVersion)
+	f.Log.Debugf("current version: %s", *alias.FunctionVersion)
 
-	list, err := f.Service.ListVersionsByFunction(&lambda.ListVersionsByFunctionInput{
-		FunctionName: &f.FunctionName,
-	})
-
+	versions, err := f.versions()
 	if err != nil {
 		return err
 	}
 
-	versions := list.Versions[1:] // remove $LATEST
 	if len(versions) < 2 {
 		return errors.New("Can't rollback. Only one version deployed.")
 	}
@@ -393,39 +460,49 @@ func (f *Function) Rollback() error {
 
 	_, err = f.Service.UpdateAlias(&lambda.UpdateAliasInput{
 		FunctionName:    &f.FunctionName,
-		Name:            aws.String(CurrentAlias),
+		Name:            &f.Alias,
 		FunctionVersion: &rollback,
-	})
-
-	return err
-}
-
-// RollbackVersion the function to the specified version.
-func (f *Function) RollbackVersion(version string) error {
-	f.Log.Info("rolling back")
-
-	alias, err := f.Service.GetAlias(&lambda.GetAliasInput{
-		FunctionName: &f.FunctionName,
-		Name:         aws.String(CurrentAlias),
 	})
 
 	if err != nil {
 		return err
 	}
 
-	f.Log.Infof("current version: %s", *alias.FunctionVersion)
+	f.Log.WithField("current version", rollback).Info("function rolled back")
+
+	return nil
+}
+
+// RollbackVersion the function to the specified version.
+func (f *Function) RollbackVersion(version string) error {
+	f.Log.Info("rolling back")
+
+	alias, err := f.currentVersionAlias()
+	if err != nil {
+		return err
+	}
+
+	f.Log.Debugf("current version: %s", *alias.FunctionVersion)
 
 	if version == *alias.FunctionVersion {
 		return errors.New("Specified version currently deployed.")
 	}
 
+	f.Log.Infof("rollback to version: %s", version)
+
 	_, err = f.Service.UpdateAlias(&lambda.UpdateAliasInput{
 		FunctionName:    &f.FunctionName,
-		Name:            aws.String(CurrentAlias),
+		Name:            &f.Alias,
 		FunctionVersion: &version,
 	})
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	f.Log.WithField("current version", version).Info("function rolled back")
+
+	return nil
 }
 
 // BuildBytes returns the generated zip as bytes.
@@ -440,7 +517,7 @@ func (f *Function) BuildBytes() ([]byte, error) {
 		return nil, err
 	}
 
-	f.Log.Infof("created build (%s)", humanize.Bytes(uint64(len(b))))
+	f.Log.Debugf("created build (%s)", humanize.Bytes(uint64(len(b))))
 	return b, nil
 }
 
@@ -449,13 +526,13 @@ func (f *Function) Build() (io.Reader, error) {
 	f.Log.Debugf("creating build")
 
 	buf := new(bytes.Buffer)
-	zip := archive.NewZipWriter(buf)
+	zip := archive.NewCompressedZipWriter(buf, flate.DefaultCompression)
 
 	if err := f.hookBuild(zip); err != nil {
 		return nil, err
 	}
 
-	files, err := utils.LoadFiles(f.Path, f.IgnoredPatterns)
+	files, err := utils.LoadFiles(f.Path, f.IgnoreFile)
 	if err != nil {
 		return nil, err
 	}
@@ -463,16 +540,36 @@ func (f *Function) Build() (io.Reader, error) {
 	for _, path := range files {
 		f.Log.WithField("file", path).Debug("add file to zip")
 
-		file, err := os.Open(filepath.Join(f.Path, path))
+		info, err := os.Lstat(filepath.Join(f.Path, path))
 		if err != nil {
 			return nil, err
 		}
 
-		if err := zip.AddFile(path, file); err != nil {
+		realPath := path
+		if info.Mode()&os.ModeSymlink == os.ModeSymlink {
+			linkPath, err := os.Readlink(filepath.Join(f.Path, path))
+			if err != nil {
+				return nil, err
+			}
+			realPath = linkPath
+		}
+
+		f, err := os.Open(filepath.Join(f.Path, realPath))
+		if err != nil {
 			return nil, err
 		}
 
-		if err := file.Close(); err != nil {
+		info, err = f.Stat()
+		if err != nil {
+			return nil, err
+		}
+
+		unixPath := strings.Replace(path, "\\", "/", -1)
+		if err := zip.AddInfoFile(unixPath, timelessInfo{info}, f); err != nil {
+			return nil, err
+		}
+
+		if err := f.Close(); err != nil {
 			return nil, err
 		}
 	}
@@ -494,29 +591,106 @@ func (f *Function) GroupName() string {
 	return fmt.Sprintf("/aws/lambda/%s", f.FunctionName)
 }
 
+// versions returns list of all versions deployed to AWS Lambda
+func (f *Function) versions() ([]*lambda.FunctionConfiguration, error) {
+	list, err := f.Service.ListVersionsByFunction(&lambda.ListVersionsByFunctionInput{
+		FunctionName: &f.FunctionName,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	versions := list.Versions[1:] // remove $LATEST
+
+	return versions, nil
+}
+
+// versionsToCleanup returns list of versions to remove after updating function
+func (f *Function) versionsToCleanup() ([]*lambda.FunctionConfiguration, error) {
+	versions, err := f.versions()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(versions) > f.RetainedVersions {
+		return versions[:len(versions)-f.RetainedVersions], nil
+	}
+
+	return nil, nil
+}
+
+// removeVersions removes specifed function's versions
+func (f *Function) removeVersions(versions []*lambda.FunctionConfiguration) error {
+	for _, v := range versions {
+		f.Log.Debugf("cleaning up version: %s", *v.Version)
+
+		_, err := f.Service.DeleteFunction(&lambda.DeleteFunctionInput{
+			FunctionName: &f.FunctionName,
+			Qualifier:    v.Version,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// currentVersionAlias returns alias configuration for currently deployed function
+func (f *Function) currentVersionAlias() (*lambda.AliasConfiguration, error) {
+	return f.Service.GetAlias(&lambda.GetAliasInput{
+		FunctionName: &f.FunctionName,
+		Name:         &f.Alias,
+	})
+}
+
 // configChanged checks if function configuration differs from configuration stored in AWS Lambda
 func (f *Function) configChanged(config *lambda.GetFunctionOutput) bool {
-	if f.Description != *config.Configuration.Description {
-		return true
+	type diffConfig struct {
+		Description string
+		Memory      int64
+		Timeout     int64
+		Role        string
+		Runtime     string
+		Handler     string
+		VPC         vpc.VPC
 	}
 
-	if f.Memory != *config.Configuration.MemorySize {
-		return true
+	localConfig := &diffConfig{
+		Description: f.Description,
+		Memory:      f.Memory,
+		Timeout:     f.Timeout,
+		Role:        f.Role,
+		Runtime:     f.Runtime,
+		Handler:     f.Handler,
+		VPC: vpc.VPC{
+			Subnets:        f.VPC.Subnets,
+			SecurityGroups: f.VPC.SecurityGroups,
+		},
 	}
 
-	if f.Timeout != *config.Configuration.Timeout {
-		return true
+	remoteConfig := &diffConfig{
+		Description: *config.Configuration.Description,
+		Memory:      *config.Configuration.MemorySize,
+		Timeout:     *config.Configuration.Timeout,
+		Role:        *config.Configuration.Role,
+		Runtime:     *config.Configuration.Runtime,
+		Handler:     *config.Configuration.Handler,
 	}
 
-	if f.Role != *config.Configuration.Role {
-		return true
+	// SDK is inconsistent here. VpcConfig can be nil or empty struct.
+	remoteConfig.VPC = vpc.VPC{Subnets: []string{}, SecurityGroups: []string{}}
+	if config.Configuration.VpcConfig != nil {
+		remoteConfig.VPC = vpc.VPC{
+			Subnets:        aws.StringValueSlice(config.Configuration.VpcConfig.SubnetIds),
+			SecurityGroups: aws.StringValueSlice(config.Configuration.VpcConfig.SecurityGroupIds),
+		}
 	}
 
-	if f.Handler != *config.Configuration.Handler {
-		return true
-	}
-
-	return false
+	localConfigJSON, _ := json.Marshal(localConfig)
+	remoteConfigJSON, _ := json.Marshal(remoteConfig)
+	return string(localConfigJSON) != string(remoteConfigJSON)
 }
 
 // hookOpen calls Openers.

@@ -14,12 +14,10 @@ import (
 )
 
 const (
-	none   = 0
 	red    = 31
 	green  = 32
 	yellow = 33
 	blue   = 34
-	gray   = 37
 )
 
 // Lambda is a partially implemented Lambda API implementation used to perform a dry-run.
@@ -126,7 +124,12 @@ func (l *Lambda) UpdateFunctionConfiguration(in *lambda.UpdateFunctionConfigurat
 
 // DeleteFunction stub.
 func (l *Lambda) DeleteFunction(in *lambda.DeleteFunctionInput) (*lambda.DeleteFunctionOutput, error) {
-	l.remove("function", *in.FunctionName, nil)
+	if in.Qualifier == nil {
+		l.remove("function", *in.FunctionName, nil)
+	} else {
+		l.remove("function version", fmt.Sprintf("%s (version: %s)", *in.FunctionName, *in.Qualifier), nil)
+	}
+
 	return nil, nil
 }
 

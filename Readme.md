@@ -1,25 +1,18 @@
-
 ![Apex Serverless Architecture](assets/logo.png)
 
-Apex is a small tool for deploying and managing [AWS Lambda](https://aws.amazon.com/lambda/) functions. With shims for languages not yet supported by Lambda, you can use Golang out of the box.
+Apex lets you build, deploy, and manage [AWS Lambda](https://aws.amazon.com/lambda/) functions with ease. With Apex you can use languages that are not natively supported by AWS Lambda, such as Golang, through the use of a Node.js shim injected into the build. A variety of workflow related tooling is provided for testing functions, rolling back deploys, viewing metrics, tailing logs, hooking into the build system and more.
 
 ## Installation
 
-Download [binaries](https://github.com/apex/apex/releases):
+On OS X, Linux, or OpenBSD:
 
 ```
-latest=$(curl -s https://api.github.com/repos/apex/apex/tags | grep name | head -n 1 | sed 's/[," ]//g' | cut -d ':' -f 2)
-curl -sL https://github.com/apex/apex/releases/download/$latest/apex_darwin_amd64 -o /usr/local/bin/apex
-chmod +x $_
+curl https://raw.githubusercontent.com/apex/apex/master/install.sh | sh
 ```
 
-Or from master:
+On Windows download [binary](https://github.com/apex/apex/releases).
 
-```
-go get github.com/apex/apex/cmd/apex
-```
-
-Or upgrading:
+If already installed, upgrade with:
 
 ```
 apex upgrade
@@ -29,24 +22,75 @@ apex upgrade
 
 Currently supports:
 
-- Nodejs
+- Node.js
 - Golang
 - Python
+- Java
+
+Example projects for all supported runtimes can be found in [_examples](_examples) directory.
 
 ## Features
 
 - Supports languages Lambda does not natively support via shim, such as Go
-- Binary install (useful for continuous deployment in CI etc)
+- Binary install (install apex quickly for continuous deployment in CI etc)
 - Hook support for running commands (transpile code, lint, etc)
+- Batteries included but optional (opt-in to higher level abstractions)
 - Project level function and resource management
 - Configuration inheritance and overrides
 - Command-line function invocation with JSON streams
 - Transparently generates a zip for your deploy
+- Project bootstrapping with optional Terraform support
 - Ignore deploying files with .apexignore
 - Function rollback support
-- Tail function CloudWatchLogs
+- Tail function logs
 - Concurrency for quick deploys
 - Dry-run to preview changes
+- VPC support
+
+## Sponsors
+
+Use Apex? Love Apex? Help [sponsor the project](https://opencollective.com/apex#sponsor) and help fill our mugs with coffee.
+
+  <a href="https://opencollective.com/apex/sponsors/0/website" target="_blank"><img src="https://opencollective.com/apex/sponsors/0/avatar"></a>
+  <a href="https://opencollective.com/apex/sponsors/1/website" target="_blank"><img src="https://opencollective.com/apex/sponsors/1/avatar"></a>
+  <a href="https://opencollective.com/apex/sponsors/2/website" target="_blank"><img src="https://opencollective.com/apex/sponsors/2/avatar"></a>
+  <a href="https://opencollective.com/apex/sponsors/3/website" target="_blank"><img src="https://opencollective.com/apex/sponsors/3/avatar"></a>
+  <a href="https://opencollective.com/apex/sponsors/4/website" target="_blank"><img src="https://opencollective.com/apex/sponsors/4/avatar"></a>
+
+## Backers
+
+Love our work and community? [Become a backer](https://opencollective.com/apex).
+
+  <a href="https://opencollective.com/apex/backers/0/website" target="_blank"><img src="https://opencollective.com/apex/backers/0/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/1/website" target="_blank"><img src="https://opencollective.com/apex/backers/1/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/2/website" target="_blank"><img src="https://opencollective.com/apex/backers/2/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/3/website" target="_blank"><img src="https://opencollective.com/apex/backers/3/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/4/website" target="_blank"><img src="https://opencollective.com/apex/backers/4/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/5/website" target="_blank"><img src="https://opencollective.com/apex/backers/5/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/6/website" target="_blank"><img src="https://opencollective.com/apex/backers/6/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/7/website" target="_blank"><img src="https://opencollective.com/apex/backers/7/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/8/website" target="_blank"><img src="https://opencollective.com/apex/backers/8/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/9/website" target="_blank"><img src="https://opencollective.com/apex/backers/9/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/10/website" target="_blank"><img src="https://opencollective.com/apex/backers/10/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/11/website" target="_blank"><img src="https://opencollective.com/apex/backers/11/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/12/website" target="_blank"><img src="https://opencollective.com/apex/backers/12/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/13/website" target="_blank"><img src="https://opencollective.com/apex/backers/13/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/14/website" target="_blank"><img src="https://opencollective.com/apex/backers/14/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/15/website" target="_blank"><img src="https://opencollective.com/apex/backers/15/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/16/website" target="_blank"><img src="https://opencollective.com/apex/backers/16/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/17/website" target="_blank"><img src="https://opencollective.com/apex/backers/17/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/18/website" target="_blank"><img src="https://opencollective.com/apex/backers/18/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/19/website" target="_blank"><img src="https://opencollective.com/apex/backers/19/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/20/website" target="_blank"><img src="https://opencollective.com/apex/backers/20/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/21/website" target="_blank"><img src="https://opencollective.com/apex/backers/21/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/22/website" target="_blank"><img src="https://opencollective.com/apex/backers/22/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/23/website" target="_blank"><img src="https://opencollective.com/apex/backers/23/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/24/website" target="_blank"><img src="https://opencollective.com/apex/backers/24/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/25/website" target="_blank"><img src="https://opencollective.com/apex/backers/25/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/26/website" target="_blank"><img src="https://opencollective.com/apex/backers/26/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/27/website" target="_blank"><img src="https://opencollective.com/apex/backers/27/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/28/website" target="_blank"><img src="https://opencollective.com/apex/backers/28/avatar"></a>
+  <a href="https://opencollective.com/apex/backers/29/website" target="_blank"><img src="https://opencollective.com/apex/backers/29/avatar"></a>
 
 ## Example
 
@@ -56,9 +100,6 @@ Apex projects are made up of a project.json configuration file, and zero or more
 project.json
 functions
 ├── bar
-│   ├── function.json
-│   └── index.js
-├── baz
 │   ├── function.json
 │   └── index.js
 └── foo
@@ -95,8 +136,6 @@ project.json
 functions
 ├── bar
 │   └── index.js
-├── baz
-│   └── index.js
 └── foo
     └── index.js
 ```
@@ -106,29 +145,7 @@ Finally the source for the functions themselves look like this in Node.js:
 ```js
 console.log('start bar')
 exports.handle = function(e, ctx) {
-  ctx.succeed({ hello: 'bar' })
-}
-```
-
-Or using the Golang Lambda package, Apex supports Golang out of the box with a Node.js shim:
-
-```go
-package main
-
-import (
-  "encoding/json"
-
-  "github.com/apex/go-apex"
-)
-
-type Message struct {
-  Hello string `json:"hello"`
-}
-
-func main() {
-  apex.HandleFunc(func(event json.RawMessage, ctx *apex.Context) (interface{}, error) {
-    return &Message{"baz"}, nil
-  })
+  ctx.succeed({ hello: e.name })
 }
 ```
 
@@ -147,23 +164,16 @@ $ apex deploy foo bar
 Invoke it!
 
 ```
-$ echo '{ "some": "data" }' | apex invoke foo
-{ "hello": "foo" }
+$ echo '{ "name": "Tobi" }' | apex invoke bar
+{ "hello": "Tobi" }
 ```
 
 See the [Documentation](docs) for more information.
 
 ## Links
 
-- [Project Examples](_examples) with source
-
-## Contributors
-
-- [TJ Holowaychuk](https://github.com/tj)
-- [Maciej Winnicki](https://github.com/mthenw)
-- [Pilwon Huh](https://github.com/pilwon)
-- [Faraz Fazli](https://github.com/farazfazli)
-- [Johannes Boyne](https://github.com/johannesboyne)
+- [Website](http://apex.run)
+- [Twitter](https://twitter.com/apexserverless)
 
 ## Badges
 
@@ -171,7 +181,7 @@ See the [Documentation](docs) for more information.
 [![Slack Status](https://apex-dev.azurewebsites.net/badge.svg)](https://apex-dev.azurewebsites.net/)
 [![GoDoc](https://godoc.org/github.com/apex/apex?status.svg)](https://godoc.org/github.com/apex/apex)
 ![](https://img.shields.io/badge/license-MIT-blue.svg)
-![](https://img.shields.io/badge/status-experimental-orange.svg)
+![](https://img.shields.io/badge/status-experimental-orange.svg) [![OpenCollective](https://opencollective.com/apex/backers/badge.svg)](#backers) [![OpenCollective](https://opencollective.com/apex/sponsors/badge.svg)](#sponsors)
 
 ---
 
