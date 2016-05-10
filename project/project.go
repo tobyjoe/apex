@@ -83,7 +83,7 @@ func (p *Project) defaults() {
 	}
 
 	if p.RetainedVersions == 0 {
-		p.RetainedVersions = 10
+		p.RetainedVersions = function.DefaultRetainedVersions
 	}
 }
 

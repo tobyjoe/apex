@@ -62,6 +62,9 @@ const (
 	RequestResponse InvocationType = "RequestResponse"
 	Event                          = "Event"
 	DryRun                         = "DryRun"
+
+	// DefaultRetainedVersions defines default number (i) of versions to retain on AWS
+	DefaultRetainedVersions = 10
 )
 
 // CurrentAlias name.
@@ -159,6 +162,10 @@ func (f *Function) defaults() {
 
 	if f.VPC.SecurityGroups == nil {
 		f.VPC.SecurityGroups = []string{}
+	}
+
+	if f.RetainedVersions == 0 {
+		f.RetainedVersions = DefaultRetainedVersions
 	}
 
 	f.Setenv("APEX_FUNCTION_NAME", f.Name)
@@ -285,14 +292,20 @@ func (f *Function) GetConfigCurrent() (*lambda.GetFunctionOutput, error) {
 	return f.GetConfigQualifier(f.Alias)
 }
 
-// Update the function with the given `zip`.
-func (f *Function) Update(zip []byte) error {
-	f.Log.Info("updating function")
-
+// cleanup removes any deployed functions beyond the configured `RetainedVersions` value
+func (f *Function) cleanup() error {
 	versionsToCleanup, err := f.versionsToCleanup()
 	if err != nil {
 		return err
 	}
+
+	return f.removeVersions(versionsToCleanup)
+}
+
+
+// Update the function with the given `zip`.
+func (f *Function) Update(zip []byte) error {
+	f.Log.Info("updating function")
 
 	updated, err := f.Service.UpdateFunctionCode(&lambda.UpdateFunctionCodeInput{
 		FunctionName: &f.FunctionName,
@@ -313,7 +326,7 @@ func (f *Function) Update(zip []byte) error {
 		"name":    f.FunctionName,
 	}).Info("function updated")
 
-	return f.removeVersions(versionsToCleanup)
+	return f.cleanup()
 }
 
 // Create the function with the given `zip`.
@@ -600,8 +613,10 @@ func (f *Function) versions() ([]*lambda.FunctionConfiguration, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	versions := list.Versions[1:] // remove $LATEST
+	versions := list.Versions
+	if *versions[0].Version == "$LATEST" {
+		versions = versions[1:] // remove $LATEST
+	}
 
 	return versions, nil
 }
@@ -611,6 +626,10 @@ func (f *Function) versionsToCleanup() ([]*lambda.FunctionConfiguration, error) 
 	versions, err := f.versions()
 	if err != nil {
 		return nil, err
+	}
+
+	if f.RetainedVersions == -1 {
+		return versions, nil
 	}
 
 	if len(versions) > f.RetainedVersions {
