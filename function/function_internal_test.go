@@ -16,6 +16,7 @@ func init() {
 }
 
 var cannedVersions = []*lambda.FunctionConfiguration{
+	&lambda.FunctionConfiguration{Version: aws.String("$LATEST")},
 	&lambda.FunctionConfiguration{Version: aws.String("1")},
 	&lambda.FunctionConfiguration{Version: aws.String("2")},
 	&lambda.FunctionConfiguration{Version: aws.String("3")},
