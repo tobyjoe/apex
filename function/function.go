@@ -613,10 +613,9 @@ func (f *Function) versions() ([]*lambda.FunctionConfiguration, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	versions := list.Versions
-	if *versions[0].Version == "$LATEST" {
-		versions = versions[1:] // remove $LATEST
-	}
+	versions = versions[1:] // remove $LATEST
 
 	return versions, nil
 }
