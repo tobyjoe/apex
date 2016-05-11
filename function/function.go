@@ -60,10 +60,10 @@ type InvocationType string
 // Invocation types.
 const (
 	RequestResponse InvocationType = "RequestResponse"
-	Event                          = "Event"
-	DryRun                         = "DryRun"
+	Event = "Event"
+	DryRun = "DryRun"
 
-	// DefaultRetainedVersions defines default number (i) of versions to retain on AWS
+// DefaultRetainedVersions defines default number (i) of versions to retain on AWS
 	DefaultRetainedVersions = 10
 )
 
@@ -165,8 +165,7 @@ func (f *Function) defaults() {
 	}
 
 	if f.RetainedVersions == nil {
-		tmp := DefaultRetainedVersions
-		f.RetainedVersions = &tmp
+		f.RetainedVersions = aws.Int(DefaultRetainedVersions)
 	}
 
 	f.Setenv("APEX_FUNCTION_NAME", f.Name)
@@ -462,8 +461,8 @@ func (f *Function) Rollback() error {
 		return errors.New("Can't rollback. Only one version deployed.")
 	}
 
-	latest := *versions[len(versions)-1].Version
-	prev := *versions[len(versions)-2].Version
+	latest := *versions[len(versions) - 1].Version
+	prev := *versions[len(versions) - 2].Version
 	rollback := latest
 
 	if *alias.FunctionVersion == latest {
@@ -560,7 +559,7 @@ func (f *Function) Build() (io.Reader, error) {
 		}
 
 		realPath := filepath.Join(f.Path, path)
-		if info.Mode()&os.ModeSymlink == os.ModeSymlink {
+		if info.Mode() & os.ModeSymlink == os.ModeSymlink {
 			linkPath, err := filepath.EvalSymlinks(realPath)
 			if err != nil {
 				return nil, err
@@ -631,7 +630,7 @@ func (f *Function) versionsToCleanup() ([]*lambda.FunctionConfiguration, error) 
 	}
 
 	if len(versions) > *f.RetainedVersions {
-		return versions[:len(versions)-*f.RetainedVersions], nil
+		return versions[:len(versions) - *f.RetainedVersions], nil
 	}
 
 	return nil, nil

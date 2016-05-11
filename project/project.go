@@ -22,13 +22,14 @@ import (
 	"github.com/apex/apex/infra"
 	"github.com/apex/apex/utils"
 	"github.com/apex/apex/vpc"
+	"github.com/aws/aws-sdk-go/aws"
 )
 
 const (
-	// DefaultMemory defines default memory value (MB) for every function in a project
+// DefaultMemory defines default memory value (MB) for every function in a project
 	DefaultMemory = 128
 
-	// DefaultTimeout defines default timeout value (s) for every function in a project
+// DefaultTimeout defines default timeout value (s) for every function in a project
 	DefaultTimeout = 3
 )
 
@@ -83,8 +84,7 @@ func (p *Project) defaults() {
 	}
 
 	if p.RetainedVersions == nil {
-		tmp := function.DefaultRetainedVersions
-		p.RetainedVersions = &tmp
+		p.RetainedVersions = aws.Int(function.DefaultRetainedVersions)
 	}
 }
 
