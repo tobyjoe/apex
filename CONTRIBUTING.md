@@ -10,6 +10,10 @@ When creating a pull-request you should:
 - __Reference the issue__: Ensure that your commit message references the issue with ". Closes #N"
 - __Add to feature list__: If your pull-request is for a feature, make sure to add it to the Readme's feature list
 
+# Requirements for development
+
+Apex requires Go 1.5 or higher.
+
 # Updating dependencies
 
 Currently Apex does not vendor deps, so you should update them with:
