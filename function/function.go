@@ -94,7 +94,7 @@ type Config struct {
 	Shim             bool              `json:"shim"`
 	Environment      map[string]string `json:"environment"`
 	Hooks            hooks.Hooks       `json:"hooks"`
-	RetainedVersions int               `json:"retainedVersions"`
+	RetainedVersions *int               `json:"retainedVersions"`
 	VPC              vpc.VPC           `json:"vpc"`
 }
 
@@ -164,8 +164,9 @@ func (f *Function) defaults() {
 		f.VPC.SecurityGroups = []string{}
 	}
 
-	if f.RetainedVersions == 0 {
-		f.RetainedVersions = DefaultRetainedVersions
+	if f.RetainedVersions == nil {
+		tmp := DefaultRetainedVersions
+		f.RetainedVersions = &tmp
 	}
 
 	f.Setenv("APEX_FUNCTION_NAME", f.Name)
@@ -628,12 +629,12 @@ func (f *Function) versionsToCleanup() ([]*lambda.FunctionConfiguration, error) 
 		return nil, err
 	}
 
-	if f.RetainedVersions == -1 {
+	if *f.RetainedVersions == 0 {
 		return versions, nil
 	}
 
-	if len(versions) > f.RetainedVersions {
-		return versions[:len(versions)-f.RetainedVersions], nil
+	if len(versions) > *f.RetainedVersions {
+		return versions[:len(versions)-*f.RetainedVersions], nil
 	}
 
 	return nil, nil

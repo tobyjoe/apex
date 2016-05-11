@@ -43,7 +43,7 @@ type Config struct {
 	Handler            string            `json:"handler"`
 	Shim               bool              `json:"shim"`
 	NameTemplate       string            `json:"nameTemplate"`
-	RetainedVersions   int               `json:"retainedVersions"`
+	RetainedVersions   *int               `json:"retainedVersions"`
 	DefaultEnvironment string            `json:"defaultEnvironment"`
 	Environment        map[string]string `json:"environment"`
 	Hooks              hooks.Hooks       `json:"hooks"`
@@ -82,8 +82,9 @@ func (p *Project) defaults() {
 		p.NameTemplate = "{{.Project.Name}}_{{.Function.Name}}"
 	}
 
-	if p.RetainedVersions == 0 {
-		p.RetainedVersions = function.DefaultRetainedVersions
+	if p.RetainedVersions == nil {
+		tmp := function.DefaultRetainedVersions
+		p.RetainedVersions = &tmp
 	}
 }
 

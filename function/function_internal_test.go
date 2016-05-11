@@ -30,15 +30,17 @@ var cannedVersions = []*lambda.FunctionConfiguration{
 }
 
 func TestFunction_versionsToCleanup_all(t *testing.T) {
-	retainedVersions := -1
-	versions, err := versionsToDelete(t, retainedVersions)
+	retainedVersions := 0
+	versions, err := versionsToDelete(t, &retainedVersions)
 
 	assert.Len(t, versions, 11)
 	assert.Nil(t, err)
 }
 
 func TestFunction_versionsToCleanup_default(t *testing.T) {
-	retainedVersions := 0
+	var retainedVersions *int
+	assert.Nil(t, retainedVersions)
+
 	versions, err := versionsToDelete(t, retainedVersions)
 
 	assert.Len(t, versions, 1)
@@ -47,7 +49,7 @@ func TestFunction_versionsToCleanup_default(t *testing.T) {
 
 func TestFunction_versionsToCleanup_two(t *testing.T) {
 	retainedVersions := 2
-	versions, err := versionsToDelete(t, retainedVersions)
+	versions, err := versionsToDelete(t, &retainedVersions)
 
 	assert.Len(t, versions, 9)
 	assert.Nil(t, err)
@@ -55,13 +57,13 @@ func TestFunction_versionsToCleanup_two(t *testing.T) {
 
 func TestFunction_versionsToCleanup_none(t *testing.T) {
 	retainedVersions := 11
-	versions, err := versionsToDelete(t, retainedVersions)
+	versions, err := versionsToDelete(t, &retainedVersions)
 
 	assert.Len(t, versions, 0)
 	assert.Nil(t, err)
 }
 
-func versionsToDelete(t *testing.T, configVersions int) ([]*lambda.FunctionConfiguration, error) {
+func versionsToDelete(t *testing.T, retainedVersions *int) ([]*lambda.FunctionConfiguration, error) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()
 	serviceMock := mock_lambdaiface.NewMockLambdaAPI(mockCtrl)
@@ -73,14 +75,15 @@ func versionsToDelete(t *testing.T, configVersions int) ([]*lambda.FunctionConfi
 			Memory:  128,
 			Timeout: 3,
 			Role:    "iamrole",
-			RetainedVersions: configVersions,
 		},
 		Path: "_fixtures/nodejsDefaultFile",
 		Name: "test",
 		Log:  log.Log,
 		Service: serviceMock,
 	}
-
+	if &retainedVersions != nil {
+		fn.RetainedVersions = retainedVersions
+	}
 	err := fn.Open()
 	if err != nil {
 		return nil, err
