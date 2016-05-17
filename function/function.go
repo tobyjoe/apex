@@ -58,12 +58,10 @@ type InvocationType string
 
 // Invocation types.
 const (
-	RequestResponse InvocationType = "RequestResponse"
-	Event = "Event"
-	DryRun = "DryRun"
-
-// DefaultRetainedVersions defines default number (i) of versions to retain on AWS
-	DefaultRetainedVersions = 10
+	RequestResponse         InvocationType = "RequestResponse"
+	Event                                  = "Event"
+	DryRun                                 = "DryRun"
+	DefaultRetainedVersions                = 10
 )
 
 // CurrentAlias name.
@@ -93,7 +91,7 @@ type Config struct {
 	Shim             bool              `json:"shim"`
 	Environment      map[string]string `json:"environment"`
 	Hooks            hooks.Hooks       `json:"hooks"`
-	RetainedVersions *int               `json:"retainedVersions"`
+	RetainedVersions *int              `json:"retainedVersions"`
 	VPC              vpc.VPC           `json:"vpc"`
 }
 
@@ -301,7 +299,6 @@ func (f *Function) cleanup() error {
 	return f.removeVersions(versionsToCleanup)
 }
 
-
 // Update the function with the given `zip`.
 func (f *Function) Update(zip []byte) error {
 	f.Log.Info("updating function")
@@ -460,8 +457,8 @@ func (f *Function) Rollback() error {
 		return errors.New("Can't rollback. Only one version deployed.")
 	}
 
-	latest := *versions[len(versions) - 1].Version
-	prev := *versions[len(versions) - 2].Version
+	latest := *versions[len(versions)-1].Version
+	prev := *versions[len(versions)-2].Version
 	rollback := latest
 
 	if *alias.FunctionVersion == latest {
@@ -628,7 +625,7 @@ func (f *Function) versionsToCleanup() ([]*lambda.FunctionConfiguration, error) 
 	}
 
 	if len(versions) > *f.RetainedVersions {
-		return versions[:len(versions) - *f.RetainedVersions], nil
+		return versions[:len(versions)-*f.RetainedVersions], nil
 	}
 
 	return nil, nil
